@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/efskap/warcrumb"
 	"log"
 	"os"
 )
 
+// Just dump the replay as a JSON object... for testing mostly
 func main() {
 	flag.Parse()
 	flag.Usage = func() {
@@ -37,7 +39,7 @@ func printJson(filepath string) {
 	}
 	defer f.Close()
 
-	rep, err := Read(f)
+	rep, err := warcrumb.ParseReplay(f)
 	if err != nil {
 		log.Println(err)
 	}

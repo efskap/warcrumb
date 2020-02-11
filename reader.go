@@ -1,4 +1,4 @@
-package main
+package warcrumb
 
 import (
 	"bytes"
@@ -8,12 +8,11 @@ import (
 	"io/ioutil"
 	"math/bits"
 	"os"
-	"sort"
 	"strings"
 	"time"
 )
 
-func Read(file io.Reader) (rep Replay, err error) {
+func ParseReplay(file io.Reader) (rep Replay, err error) {
 	header, err := readHeader(file)
 	if err != nil {
 		return rep, fmt.Errorf("error reading header: %w", err)
@@ -44,12 +43,12 @@ func Read(file io.Reader) (rep Replay, err error) {
 	_ = os.Mkdir("hexdumps", os.ModePerm)
 	_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
 	if buffer.Len() > 0 {
-		fmt.Printf("[*] %d unread bytes left!!!\n\n", buffer.Len())
+		fmt.Printf("[*] %d unread bytes left!!!\n", buffer.Len())
 	}
 	return
 }
 
-func readHeader(file io.Reader) (header Header, err error) {
+func readHeader(file io.Reader) (header header, err error) {
 	magicString := make([]byte, 28)
 	if _, err = file.Read(magicString); err != nil {
 		return header, fmt.Errorf("error reading magic string: %w", err)
@@ -255,11 +254,12 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		}
 	}
 
-	unknownMaybeLangId, err := readDWORD(buffer)
+	// this is called LanguageID in the txt file but don't think there's a use for it
+	_, err = readDWORD(buffer)
 	if err != nil {
 		return fmt.Errorf("error reading LanguageID: %w", err)
 	}
-	fmt.Printf("LanguageID (?) = 0x%x\n", unknownMaybeLangId)
+	//fmt.Printf("LanguageID (?) = 0x%x\n", unknownMaybeLangId)
 
 	// player record, bnet, break on gamestartrecord
 	for {
@@ -267,7 +267,6 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if err != nil {
 			return fmt.Errorf("error reading record id: %w", err)
 		}
-		//fmt.Printf("RecordID: 0x%x\n", recordId)
 
 		if recordId == 0x16 {
 			// playerRecord
@@ -303,7 +302,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			if err != nil {
 				return fmt.Errorf("error reading bnet2.0 block: %w", err)
 			}
-			_ = ioutil.WriteFile("bnetBlock.hex", bnetBlock, os.ModePerm)
+			_ = ioutil.WriteFile("hexdumps/bnetBlock.hex", bnetBlock, os.ModePerm)
 			bnetBuffer := bytes.NewBuffer(bnetBlock)
 
 			// now we don't know how many account entries are in the block
@@ -362,7 +361,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			}
 		}
 		//fmt.Printf("slot references invalid player record: id=%d\n", playerId)
-		slotRecord.PlayerId = pRec.Id
+		slotRecord.playerId = pRec.Id
 
 		if mapDownloadPct, err := buffer.ReadByte(); err != nil {
 			return err
@@ -442,22 +441,23 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 	// select mode
 
-	rep.Players = make([]Player, 0, len(playerRecords))
+	rep.Players = make(map[int]Player)
 	for id, pRec := range playerRecords {
-		if id != pRec.Id || rep.Slots[pRec.SlotId].PlayerId != id {
+		if id != pRec.Id || rep.Slots[pRec.SlotId].playerId != id {
 			return fmt.Errorf("id was not set correctly")
 		}
-		// I could set by index... but appending and sorting is safer
-		rep.Players = append(rep.Players, Player{
+		rep.Players[id] = Player{
 			Id:        id,
 			SlotId:    pRec.SlotId,
 			BattleNet: pRec.Bnet2Acc,
 			Name:      pRec.Name,
-		})
+		}
 	}
-	sort.Slice(rep.Players, func(i, j int) bool {
-		return rep.Players[i].Id < rep.Players[j].Id
-	})
+
+	for i, slot := range rep.Slots {
+		player := rep.Players[slot.playerId]
+		rep.Slots[i].Player = &player
+	}
 
 	// make sure slots and players refer to each other consistently
 	// note that unoccupied slots refer to player 0 and aren't checked here
@@ -466,7 +466,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if err != nil {
 			return fmt.Errorf("error during player/slot consistency check: %w", err)
 		}
-		if slot.PlayerId != p.Id {
+		if slot.Player.Id != p.Id {
 			return fmt.Errorf("player %+v and Slot %+v ids aren't consistent", p, slot)
 		}
 	}
@@ -659,7 +659,7 @@ type playerRecord struct {
 	SlotId    int
 }
 
-type Header struct {
+type header struct {
 	GameVersion    int
 	HeaderVersion  uint32
 	NumberOfBlocks uint32

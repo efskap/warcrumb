@@ -1,4 +1,4 @@
-package main
+package warcrumb
 
 import (
 	"bytes"
@@ -68,9 +68,9 @@ func expectByte(file io.Reader, expected byte) error {
 }
 
 type UnexpectedValueError struct {
-	actual interface{}
+	actual   interface{}
 	expected interface{}
-	hex bool
+	hex      bool
 }
 
 func (u UnexpectedValueError) Error() string {
@@ -167,7 +167,6 @@ func readLittleEndianString(file io.Reader, nBytes int) (string, error) {
 	}
 	return string(buf), nil
 }
-
 
 // readLengthAndThenString reads a non-null terminated string represented by its length and then the bytes
 func readLengthAndThenString(buffer *bytes.Buffer) (string, error) {

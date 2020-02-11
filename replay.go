@@ -1,4 +1,4 @@
-package main
+package warcrumb
 
 import (
 	"errors"
@@ -17,7 +17,7 @@ type Replay struct {
 	GameType      GameType
 	PrivateGame   bool
 	GameOptions   GameOptions
-	Players       []Player
+	Players       map[int]Player
 	Slots         []Slot
 	RandomSeed    uint32
 }
@@ -105,7 +105,7 @@ type BattleNet2Account struct {
 
 type Slot struct {
 	Id                    int
-	PlayerId              int
+	Player                *Player
 	IsCPU                 bool
 	Race                  race
 	raceSelectableOrFixed bool
@@ -115,6 +115,27 @@ type Slot struct {
 	AIStrength            AIStrength
 	Handicap              int
 	MapDownloadPercent    byte
+	playerId              int
+}
+
+func (s *Slot) NameText() string {
+	switch s.SlotStatus {
+	case EmptySlot:
+		return "Open"
+	case ClosedSlot:
+		return "Closed"
+	case UsedSlot:
+		if s.IsCPU {
+			return fmt.Sprintf("Computer (%s)", s.AIStrength.String())
+		} else if s.Player != nil {
+			if s.Player.BattleNet != nil {
+				return s.Player.BattleNet.Username
+			} else {
+				return s.Player.Name
+			}
+		}
+	}
+	return ""
 }
 
 type race struct {
@@ -232,11 +253,11 @@ type AIStrength byte
 
 func (a *AIStrength) String() string {
 	switch *a {
-	case 0x01:
+	case 0x0:
 		return "Easy"
-	case 0x02:
+	case 0x1:
 		return "Normal"
-	case 0x03:
+	case 0x2:
 		return "Insane"
 	}
 	//return fmt.Sprintf("n/a (0x%x)", *a)
