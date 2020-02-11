@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"math/bits"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -41,7 +42,7 @@ func Read(file io.Reader) (rep Replay, err error) {
 	}
 
 	_ = os.Mkdir("hexdumps", os.ModePerm)
-	_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex",rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
+	_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
 	if buffer.Len() > 0 {
 		fmt.Printf("[*] %d unread bytes left!!!\n\n", buffer.Len())
 	}
@@ -69,12 +70,10 @@ func readHeader(file io.Reader) (header Header, err error) {
 	}
 	header.Length = headerSize
 
-	compressedFileSize, err := readDWORD(file)
+	_, err = readDWORD(file)
 	if err != nil {
 		return header, fmt.Errorf("error reading compressed file size: %w", err)
 	}
-
-	fmt.Println(compressedFileSize)
 
 	replayHeaderVersion, err := readDWORD(file)
 	if err != nil {
@@ -224,13 +223,13 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	}
 
 	// [PlayerCount]
-	playerCount, err := readDWORD(buffer)
+	_, err = readDWORD(buffer)
 	if err != nil {
 		return fmt.Errorf("error reading player count: %w", err)
 	}
 	//rep.Slots = make([]Slot, playerCount)
 
-	fmt.Println("playercount", playerCount)
+	//fmt.Println("playercount", playerCount)
 	// [GameType]
 
 	gameType, err := buffer.ReadByte()
@@ -243,7 +242,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	if err != nil {
 		return fmt.Errorf("error reading private flag: %w", err)
 	}
-	fmt.Printf("private flag: 0x%x\n", privateFlag)
+	//fmt.Printf("private flag: 0x%x\n", privateFlag)
 	rep.PrivateGame = privateFlag == 0x08 || privateFlag == 0xc8
 	// TODO: this can also be 0x20 (in reforged public custom game) or 0x40 (reforged matchmaking)
 
@@ -334,16 +333,16 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 	// GameStartRecord
 
-	if dataBytes, err := readWORD(buffer); err != nil {
+	if _, err := readWORD(buffer); err != nil {
 		return err
 	} else {
-		fmt.Println(dataBytes, "data bytes")
+		//fmt.Println(dataBytes, "data bytes")
 	}
 	nr, err := buffer.ReadByte()
 	if err != nil {
 		return err
 	} else {
-		fmt.Println(nr, "slot records")
+		//fmt.Println(nr, "slot records")
 	}
 	rep.Slots = make([]Slot, 0, nr)
 	for slotId := 0; slotId < int(nr); slotId++ {
@@ -354,29 +353,32 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		pRec, ok := playerRecords[int(playerId)]
 		pRec.SlotId = slotId
 
-		var slotRecord Slot
+		slotRecord := Slot{Id: slotId}
 		if playerId != 0 {
-			if ! ok {
+			if !ok {
 				return fmt.Errorf("slot references invalid player record: id=%d", playerId)
 			} else {
 				playerRecords[int(playerId)] = pRec
 			}
 		}
-			//fmt.Printf("slot references invalid player record: id=%d\n", playerId)
+		//fmt.Printf("slot references invalid player record: id=%d\n", playerId)
 		slotRecord.PlayerId = pRec.Id
 
 		if mapDownloadPct, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
 			slotRecord.MapDownloadPercent = mapDownloadPct
-			if !( mapDownloadPct == 255 || mapDownloadPct == 100 ) {
+			if !(mapDownloadPct == 255 || mapDownloadPct == 100) {
 				return fmt.Errorf("sanity check failed: playerId = %d, map download %% = 0x%x", playerId, mapDownloadPct)
 			}
 		}
 		if slotStatus, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
-			slotRecord.SlotStatus = SlotStatus(slotStatus)
+			slotRecord.SlotStatus, ok = slotStatuses[slotStatus]
+			if !ok {
+				return fmt.Errorf("invalid slot status: 0x%x", slotStatus)
+			}
 		}
 		if isCPU, err := buffer.ReadByte(); err != nil {
 			return err
@@ -394,7 +396,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if color, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
-			slotRecord.Color = Color(color)
+			slotRecord.Color = colors[color]
 		}
 
 		if playerRace, err := buffer.ReadByte(); err != nil {
@@ -402,19 +404,23 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		} else {
 			if playerRace&0x40 > 0 {
 				slotRecord.raceSelectableOrFixed = true
+				playerRace -= 0x40
 			}
-			slotRecord.Race = races[playerRace]
+			slotRecord.Race, ok = races[playerRace]
+			if !ok {
+				return fmt.Errorf("unknown race: 0x%x", playerRace)
+			}
 		}
 		if rep.Version >= 03 {
 			if aiStrength, err := buffer.ReadByte(); err != nil {
 				return err
 			} else {
 				slotRecord.AIStrength = AIStrength(aiStrength)
-			/*
-			if !slotRecord.IsCPU && aiStrength != 0x01 {
-					return fmt.Errorf("if not CPU, aiStrshould be 0x01 but it was 0x%x", aiStrength)
-				}
-			*/
+				/*
+					if !slotRecord.IsCPU && aiStrength != 0x01 {
+							return fmt.Errorf("if not CPU, aiStrshould be 0x01 but it was 0x%x", aiStrength)
+						}
+				*/
 
 			}
 		}
@@ -436,21 +442,35 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 	// select mode
 
-
-
-
 	rep.Players = make([]Player, 0, len(playerRecords))
 	for id, pRec := range playerRecords {
-		if id != pRec.Id  || rep.Slots[pRec.SlotId].PlayerId != id{
-			return fmt.Errorf("ID WAS NOT SET CORRECTLY")
-
+		if id != pRec.Id || rep.Slots[pRec.SlotId].PlayerId != id {
+			return fmt.Errorf("id was not set correctly")
 		}
+		// I could set by index... but appending and sorting is safer
 		rep.Players = append(rep.Players, Player{
-			SlotId:  pRec.SlotId,
+			Id:        id,
+			SlotId:    pRec.SlotId,
 			BattleNet: pRec.Bnet2Acc,
-			Name: pRec.Name,
+			Name:      pRec.Name,
 		})
 	}
+	sort.Slice(rep.Players, func(i, j int) bool {
+		return rep.Players[i].Id < rep.Players[j].Id
+	})
+
+	// make sure slots and players refer to each other consistently
+	// note that unoccupied slots refer to player 0 and aren't checked here
+	for _, p := range rep.Players {
+		slot, err := rep.GetSlotOf(&p)
+		if err != nil {
+			return fmt.Errorf("error during player/slot consistency check: %w", err)
+		}
+		if slot.PlayerId != p.Id {
+			return fmt.Errorf("player %+v and Slot %+v ids aren't consistent", p, slot)
+		}
+	}
+
 	return nil
 }
 
@@ -608,7 +628,7 @@ func readPlayerRecord(buffer *bytes.Buffer) (playerRecord playerRecord, err erro
 		if runtimeMS, err := readDWORD(buffer); err != nil {
 			return playerRecord, fmt.Errorf("error reading player exe runtime: %w", err)
 		} else {
-			fmt.Println(runtimeMS)
+			//fmt.Println(runtimeMS)
 			playerRecord.RuntimeMS = runtimeMS
 		}
 		// player race flags:
@@ -631,12 +651,12 @@ func readPlayerRecord(buffer *bytes.Buffer) (playerRecord playerRecord, err erro
 // playerRecord is the first thing about the player we encounter
 // so it's a good starting point to later append bnet and slot stuff to
 type playerRecord struct {
-	Id         int
-	Name       string
-	RuntimeMS  uint32
-	RaceFlags  uint32
-	Bnet2Acc   *BattleNet2Account
-	SlotId     int
+	Id        int
+	Name      string
+	RuntimeMS uint32
+	RaceFlags uint32
+	Bnet2Acc  *BattleNet2Account
+	SlotId    int
 }
 
 type Header struct {

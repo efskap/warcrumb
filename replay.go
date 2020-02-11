@@ -1,6 +1,11 @@
 package main
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"image/color"
+	"time"
+)
 
 type Replay struct {
 	Duration      time.Duration
@@ -8,12 +13,12 @@ type Replay struct {
 	BuildNumber   int
 	Expac         Expac
 	IsMultiplayer bool
-	isReforged 	  bool
+	isReforged    bool
 	GameType      GameType
 	PrivateGame   bool
 	GameOptions   GameOptions
 	Players       []Player
-	Slots				  []Slot
+	Slots         []Slot
 	RandomSeed    uint32
 }
 
@@ -34,10 +39,10 @@ type GameOptions struct {
 type ObserverSetting int
 
 const (
-	ObsOff ObserverSetting = 0
-	ObsOnDefeat = 2
-	ObsOn = 3
-	ObsReferees = 4
+	ObsOff      ObserverSetting = 0
+	ObsOnDefeat                 = 2
+	ObsOn                       = 3
+	ObsReferees                 = 4
 )
 
 type GameSpeed int
@@ -75,12 +80,19 @@ const (
 )
 
 type Player struct {
-	Name string
-	SlotId int
+	Name      string
+	Id        int
+	SlotId    int
 	BattleNet *BattleNet2Account
 }
-func (p *Player) GetSlot(replay *Replay) *Slot {
-	return &replay.Slots[p.SlotId]
+
+var InvalidSlot = errors.New("invalid slot")
+
+func (rep *Replay) GetSlotOf(player *Player) (*Slot, error) {
+	if player.SlotId >= len(rep.Slots) {
+		return nil, fmt.Errorf("error getting slot for %+v: %w", player, InvalidSlot)
+	}
+	return &rep.Slots[player.SlotId], nil
 }
 
 type BattleNet2Account struct {
@@ -92,11 +104,12 @@ type BattleNet2Account struct {
 }
 
 type Slot struct {
+	Id                    int
 	PlayerId              int
 	IsCPU                 bool
-	Race                  Race
+	Race                  race
 	raceSelectableOrFixed bool
-	SlotStatus            SlotStatus
+	SlotStatus            slotStatus
 	TeamNumber            int
 	Color                 Color
 	AIStrength            AIStrength
@@ -104,15 +117,27 @@ type Slot struct {
 	MapDownloadPercent    byte
 }
 
-type Race string
-const (
-	Human Race = "Human"
-	Orc = "Orc"
-	NightElf = "Night Elf"
-	Undead = "Undead"
-	RandomRace = "Random"
+type race struct {
+	name string
+	// could add an icon field
+}
+
+var (
+	Human      = race{"Human"}
+	Orc        = race{"Orc"}
+	NightElf   = race{"Night Elf"}
+	Undead     = race{"Undead"}
+	RandomRace = race{"Random"}
 )
-var races = map[byte]Race {
+
+func (r *race) String() string {
+	return r.name
+}
+func (r *race) MarshalText() ([]byte, error) {
+	return []byte(r.String()), nil
+}
+
+var races = map[byte]race{
 	0x01: Human,
 	0x02: Orc,
 	0x04: NightElf,
@@ -120,34 +145,109 @@ var races = map[byte]Race {
 	0x20: RandomRace,
 }
 
+type slotStatus string
 
-type SlotStatus byte
+var slotStatuses = map[byte]slotStatus{
+	0x0: EmptySlot,
+	0x1: ClosedSlot,
+	0x2: UsedSlot,
+}
+
 const (
-	EmptySlot SlotStatus = 0x0
-	ClosedSlot = 0x1
-	UsedSlot = 0x2
+	EmptySlot  slotStatus = "Empty"
+	ClosedSlot            = "Closed"
+	UsedSlot              = "Used"
 )
 
-type Color byte
-const (
-	Red Color = iota
-	Blue
-	Cyan
-	Purple
-	Yellow
-	Orange
-	Green
-	Pink
-	Gray
-	LightBlue
-	DarkGreen
-	Brown
-	ObserverOrRefColor
+type Color struct {
+	color.Color
+	name string
+}
+
+// todo: provide an option to output hex or something
+func (c *Color) String() string {
+	return c.name
+}
+func (c *Color) MarshalText() ([]byte, error) {
+	return []byte(c.String()), nil
+}
+
+// colour values from WorldEdit, names from https://gaming-tools.com/warcraft-3/patch-1-29/
+var (
+	Red       = Color{color.RGBA{255, 4, 2, 255}, "Red"}
+	Blue      = Color{color.RGBA{0, 66, 255, 255}, "Blue"}
+	Teal      = Color{color.RGBA{27, 230, 186, 255}, "Teal"}
+	Purple    = Color{color.RGBA{85, 0, 129, 255}, "Purple"}
+	Yellow    = Color{color.RGBA{255, 252, 0, 255}, "Yellow"}
+	Orange    = Color{color.RGBA{255, 138, 13, 255}, "Orange"}
+	Green     = Color{color.RGBA{32, 191, 0, 255}, "Green"}
+	Pink      = Color{color.RGBA{227, 91, 175, 255}, "Pink"}
+	Grey      = Color{color.RGBA{148, 150, 151, 255}, "Grey"}
+	LightBlue = Color{color.RGBA{126, 191, 241, 255}, "LightBlue"}
+	DarkGreen = Color{color.RGBA{16, 98, 71, 255}, "DarkGreen"}
+	Brown     = Color{color.RGBA{79, 43, 5, 255}, "Brown"}
+	Maroon    = Color{color.RGBA{156, 0, 0, 255}, "Maroon"}
+	Navy      = Color{color.RGBA{0, 0, 194, 255}, "Navy"}
+	Turquoise = Color{color.RGBA{0, 235, 255, 255}, "Turquoise"}
+	Violet    = Color{color.RGBA{189, 0, 255, 255}, "Violet"}
+	Wheat     = Color{color.RGBA{236, 204, 134, 255}, "Wheat"}
+	Peach     = Color{color.RGBA{247, 164, 139, 255}, "Peach"}
+	Mint      = Color{color.RGBA{191, 255, 128, 255}, "Mint"}
+	Lavender  = Color{color.RGBA{219, 184, 236, 255}, "Lavender"}
+	Coal      = Color{color.RGBA{79, 79, 85, 255}, "Coal"}
+	Snow      = Color{color.RGBA{236, 240, 255, 255}, "Snow"}
+	Emerald   = Color{color.RGBA{0, 120, 30, 255}, "Emerald"}
+	Peanut    = Color{color.RGBA{164, 111, 52, 255}, "Peanut"}
 )
+
+// colors stores all colors in order for lookup (e.g. Red is encoded as 0x00, Blue as 0x01)
+var colors = []Color{
+	Red,
+	Blue,
+	Teal,
+	Purple,
+	Yellow,
+	Orange,
+	Green,
+	Pink,
+	Grey,
+	LightBlue,
+	DarkGreen,
+	Brown,
+	Maroon, // Observer or Ref color btw
+	Navy,
+	Turquoise,
+	Violet,
+	Wheat,
+	Peach,
+	Mint,
+	Lavender,
+	Coal,
+	Snow,
+	Emerald,
+	Peanut,
+}
 
 type AIStrength byte
+
+func (a *AIStrength) String() string {
+	switch *a {
+	case 0x01:
+		return "Easy"
+	case 0x02:
+		return "Normal"
+	case 0x03:
+		return "Insane"
+	}
+	//return fmt.Sprintf("n/a (0x%x)", *a)
+	return "n/a"
+}
+func (a *AIStrength) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
 const (
-	EasyAI AIStrength = 0x00
-	NormalAI = 0x01
-	InsaneAI = 0x02
+	EasyAI   AIStrength = 0x00
+	NormalAI            = 0x01
+	InsaneAI            = 0x02
 )
