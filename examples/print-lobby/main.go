@@ -63,7 +63,7 @@ func resetColor() string {
 }
 func paddedStr(str string, i int) string {
 	if len(str) >= i {
-		return ""
+		return str
 	}
 	return str + strings.Repeat(" ", i-len(str))
 }
