@@ -12,10 +12,23 @@ import (
 	"time"
 )
 
+// ParseReplayDebug is the same as ParseReplay but dumps binaries and prints to stdout too
+func ParseReplayDebug(file io.Reader) (rep Replay, err error) {
+	rep.parseOptions.debugMode = true
+	err = read(file, &rep)
+	return rep, err
+}
+
+// ParseReplay parses an opened .w3g file.
 func ParseReplay(file io.Reader) (rep Replay, err error) {
+	err = read(file, &rep)
+	return rep, err
+}
+
+func read(file io.Reader, rep *Replay) (err error) {
 	header, err := readHeader(file)
 	if err != nil {
-		return rep, fmt.Errorf("error reading header: %w", err)
+		return fmt.Errorf("error reading header: %w", err)
 	}
 	rep.IsMultiplayer = header.IsMultiplayer
 	rep.Duration = header.Duration
@@ -30,20 +43,23 @@ func ParseReplay(file io.Reader) (rep Replay, err error) {
 	for i := 0; i < int(header.NumberOfBlocks); i++ {
 		b, err := readCompressedBlock(file, rep.isReforged)
 		if err != nil {
-			return rep, fmt.Errorf("failed to decompress block i=%d: %w", i, err)
+			return fmt.Errorf("failed to decompress block i=%d: %w", i, err)
 		}
 		buffer.Write(b)
 	}
 
-	err = readDecompressedData(buffer, &rep)
+	err = readDecompressedData(buffer, rep)
 	if err != nil {
-		return rep, fmt.Errorf("error in decompressed data: %w", err)
+		return fmt.Errorf("error in decompressed data: %w", err)
 	}
 
-	_ = os.Mkdir("hexdumps", os.ModePerm)
-	_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
-	if buffer.Len() > 0 {
-		fmt.Printf("[*] %d unread bytes left!!!\n", buffer.Len())
+	if rep.debugMode {
+		_ = os.Mkdir("hexdumps", os.ModePerm)
+		_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
+
+		if buffer.Len() > 0 {
+			fmt.Printf("[*] %d unread bytes left!!!\n", buffer.Len())
+		}
 	}
 	return
 }
@@ -186,7 +202,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	if err = expectByte(buffer, 0); err != nil {
 		return err
 	}
-	p, err := readPlayerRecord(buffer)
+	p, err := readPlayerRecord(buffer, rep)
 	if err != nil {
 		return err
 	}
@@ -208,8 +224,10 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		}
 
 		// add the byte we removed back to the beginning
-		str = strings.TrimRight(string(append([]byte{b}, str...)), "\000")
-		fmt.Println("mystery string:", str)
+		if rep.debugMode {
+			str = strings.TrimRight(string(append([]byte{b}, str...)), "\000")
+			fmt.Println("mystery string:", str)
+		}
 	}
 
 	encodedString, err := buffer.ReadString(0) // read null terminated string
@@ -270,7 +288,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 		if recordId == 0x16 {
 			// playerRecord
-			if pRec, err := readPlayerRecord(buffer); err != nil {
+			if pRec, err := readPlayerRecord(buffer, rep); err != nil {
 				return err
 			} else {
 				playerRecords[pRec.Id] = pRec
@@ -279,7 +297,9 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				return err
 			}
 		} else if recordId == 0x39 {
-			fmt.Println("[*] Battle.net 2.0 data present")
+			if rep.debugMode {
+				fmt.Println("[*] Battle.net 2.0 data present")
+			}
 
 			// not sure what these next 7 bytes are but they seem consistent?
 			restOfBnetMagic := make([]byte, 7)
@@ -288,7 +308,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				return fmt.Errorf("error reading rest of bnet2.0 magic: %w", err)
 			}
 
-			if !bytes.Equal(restOfBnetMagic, []byte{4, 0, 0, 0, 0, 57, 3}) {
+			if !bytes.Equal(restOfBnetMagic, []byte{4, 0, 0, 0, 0, 57, 3}) && rep.debugMode {
 				fmt.Printf("wasn't expecting that magic string: %v\n", restOfBnetMagic)
 			}
 
@@ -302,7 +322,10 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			if err != nil {
 				return fmt.Errorf("error reading bnet2.0 block: %w", err)
 			}
-			_ = ioutil.WriteFile("hexdumps/bnetBlock.hex", bnetBlock, os.ModePerm)
+
+			if rep.debugMode {
+				_ = ioutil.WriteFile("hexdumps/bnetBlock.hex", bnetBlock, os.ModePerm)
+			}
 			bnetBuffer := bytes.NewBuffer(bnetBlock)
 
 			// now we don't know how many account entries are in the block
@@ -451,23 +474,23 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			SlotId:    pRec.SlotId,
 			BattleNet: pRec.Bnet2Acc,
 			Name:      pRec.Name,
+			slot:      &rep.Slots[pRec.SlotId],
 		}
 	}
 
 	for i, slot := range rep.Slots {
-		player := rep.Players[slot.playerId]
-		rep.Slots[i].Player = &player
+		player, ok := rep.Players[slot.playerId]
+		if ok {
+			rep.Slots[i].Player = &player
+		}
+
 	}
 
 	// make sure slots and players refer to each other consistently
 	// note that unoccupied slots refer to player 0 and aren't checked here
 	for _, p := range rep.Players {
-		slot, err := rep.GetSlotOf(&p)
-		if err != nil {
-			return fmt.Errorf("error during player/slot consistency check: %w", err)
-		}
-		if slot.Player.Id != p.Id {
-			return fmt.Errorf("player %+v and Slot %+v ids aren't consistent", p, slot)
+		if p.slot.Player.Id != p.Id {
+			return fmt.Errorf("player %+v and Slot %+v ids aren't consistent", p, p.slot)
 		}
 	}
 
@@ -599,7 +622,7 @@ func readEncodedString(encodedStr string, rep *Replay) error {
 	}
 	return nil
 }
-func readPlayerRecord(buffer *bytes.Buffer) (playerRecord playerRecord, err error) {
+func readPlayerRecord(buffer *bytes.Buffer, rep *Replay) (playerRecord playerRecord, err error) {
 
 	playerId, err := buffer.ReadByte()
 	if err != nil {
@@ -635,14 +658,20 @@ func readPlayerRecord(buffer *bytes.Buffer) (playerRecord playerRecord, err erro
 		if playerRaceFlags, err := readDWORD(buffer); err != nil {
 			return playerRecord, fmt.Errorf("error reading player race flags: %w", err)
 		} else {
-			fmt.Printf("player race flag: 0x%x\n", playerRaceFlags)
+			if rep.debugMode {
+				fmt.Printf("player race flag: 0x%x\n", playerRaceFlags)
+			}
 			playerRecord.RaceFlags = playerRaceFlags
 		}
 	} else if additionalDataSize != 0 {
-		fmt.Printf("Warning: unrecognized additional data size: 0x%x\n", additionalDataSize)
+		if rep.debugMode {
+			fmt.Printf("Warning: unrecognized additional data size: 0x%x\n", additionalDataSize)
+		}
 		additionalData := make([]byte, additionalDataSize)
 		_, err = buffer.Read(additionalData)
-		fmt.Println("additional data:", additionalData)
+		if rep.debugMode {
+			fmt.Println("additional data:", additionalData)
+		}
 	}
 	return
 }

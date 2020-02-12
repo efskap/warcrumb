@@ -1,7 +1,6 @@
 package warcrumb
 
 import (
-	"errors"
 	"fmt"
 	"image/color"
 	"time"
@@ -20,6 +19,11 @@ type Replay struct {
 	Players       map[int]Player
 	Slots         []Slot
 	RandomSeed    uint32
+	parseOptions
+}
+
+type parseOptions struct {
+	debugMode bool
 }
 
 type GameOptions struct {
@@ -80,19 +84,13 @@ const (
 )
 
 type Player struct {
-	Name      string
-	Id        int
-	SlotId    int
+	Name   string
+	Id     int
+	SlotId int
+	// slot is currently not exposed to avoid panic (due to pointer cycle) when converting to json
+	// but that's probably not the best reason
+	slot      *Slot
 	BattleNet *BattleNet2Account
-}
-
-var InvalidSlot = errors.New("invalid slot")
-
-func (rep *Replay) GetSlotOf(player *Player) (*Slot, error) {
-	if player.SlotId >= len(rep.Slots) {
-		return nil, fmt.Errorf("error getting slot for %+v: %w", player, InvalidSlot)
-	}
-	return &rep.Slots[player.SlotId], nil
 }
 
 type BattleNet2Account struct {
@@ -118,6 +116,7 @@ type Slot struct {
 	playerId              int
 }
 
+// NameText returns the text you'd see in-game as the name of that slot.
 func (s *Slot) NameText() string {
 	switch s.SlotStatus {
 	case EmptySlot:
@@ -127,7 +126,7 @@ func (s *Slot) NameText() string {
 	case UsedSlot:
 		if s.IsCPU {
 			return fmt.Sprintf("Computer (%s)", s.AIStrength.String())
-		} else if s.Player != nil {
+		} else {
 			if s.Player.BattleNet != nil {
 				return s.Player.BattleNet.Username
 			} else {
@@ -253,11 +252,11 @@ type AIStrength byte
 
 func (a *AIStrength) String() string {
 	switch *a {
-	case 0x0:
+	case EasyAI:
 		return "Easy"
-	case 0x1:
+	case NormalAI:
 		return "Normal"
-	case 0x2:
+	case InsaneAI:
 		return "Insane"
 	}
 	//return fmt.Sprintf("n/a (0x%x)", *a)

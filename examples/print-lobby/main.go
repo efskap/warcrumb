@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"log"
 	"os"
+	"strings"
 )
 
 // Prints what the slots on the lobby screen would look like
@@ -22,7 +23,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	for _, arg := range flag.Args() {
+	for i, arg := range flag.Args() {
 		f, err := os.Open(arg)
 		if err != nil {
 			log.Fatalf("cannot open %s: %s", arg, err)
@@ -32,24 +33,21 @@ func main() {
 			log.Fatalf("cannot parse %s: %s", arg, err)
 		}
 		printLobby(replay)
+		if i < flag.NArg()-1 {
+			fmt.Println(strings.Repeat("\u2015", 60))
+		}
 	}
 
 }
 
 func printLobby(replay warcrumb.Replay) {
 	for _, slot := range replay.Slots {
-		fmt.Print(slot.NameText())
-		for i := 0; i < 16-len(slot.NameText()); i++ {
-			fmt.Print(" ")
-		} // pad out name
+		fmt.Print(paddedStr(slot.NameText(), 20))
 		if slot.SlotStatus == warcrumb.UsedSlot {
-			fmt.Print("\t", slot.Race.String())
-			for i := 0; i < 11-len(slot.Race.String()); i++ {
-				fmt.Print(" ")
-			} // pad out race
 			fmt.Print("\t",
+				paddedStr(slot.Race.String(), 11), "\t",
 				"Team ", slot.TeamNumber+1, "\t",
-				setFgColor(slot.Color), "\u2588\u2588", resetColor(), "\t",
+				setFgColor(slot.Color), "\u2588\u2588", resetColor(), "\t", // colored box
 				slot.Handicap, "%",
 			)
 		}
@@ -62,4 +60,10 @@ func setFgColor(color color.Color) string {
 }
 func resetColor() string {
 	return "\x01\x1b[0m\x02"
+}
+func paddedStr(str string, i int) string {
+	if len(str) >= i {
+		return ""
+	}
+	return str + strings.Repeat(" ", i-len(str))
 }

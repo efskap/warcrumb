@@ -24,11 +24,6 @@ func main() {
 	for _, arg := range flag.Args() {
 		printJson(arg)
 	}
-	//f, err := os.Open("testReplays/1.18-replayspl_4105_MKpowa_KrawieC..w3g")
-	//f, err := os.Open("reforgedPudgeWars.w3g")
-	//f, err := os.Open("./FirstWin.w3g")
-	//f, err := os.Open("./1.18-replayspl_4105_MKpowa_KrawieC..w3g")
-	//f, err := os.Open("./1.01-LeoLaporte_vs_Ghostridah_crazy.w3g")
 
 }
 func printJson(filepath string) {

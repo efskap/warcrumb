@@ -1,7 +1,7 @@
 # warcrumb
 ## Warcraft 3 Replay Parser in Go
 
-Work in progress. Currently only pulls out metadata, not the actual game events.
+Work in progress. Currently only pulls out metadata, not the actual game events. 
 
 Supports all versions of the game, including Reforged.
 
