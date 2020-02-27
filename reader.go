@@ -443,7 +443,6 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 							return fmt.Errorf("if not CPU, aiStrshould be 0x01 but it was 0x%x", aiStrength)
 						}
 				*/
-
 			}
 		}
 		if rep.Version >= 07 {
@@ -456,20 +455,12 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		rep.Slots = append(rep.Slots, slotRecord)
 	}
 
-	randomSeed, err := readDWORD(buffer)
-	if err != nil {
-		return fmt.Errorf("error reading random seed: %w", err)
-	}
-	rep.RandomSeed = randomSeed
-
-	// select mode
-
-	rep.Players = make(map[int]Player)
+	rep.Players = make(map[int]*Player)
 	for id, pRec := range playerRecords {
 		if id != pRec.Id || rep.Slots[pRec.SlotId].playerId != id {
 			return fmt.Errorf("id was not set correctly")
 		}
-		rep.Players[id] = Player{
+		rep.Players[id] = &Player{
 			Id:        id,
 			SlotId:    pRec.SlotId,
 			BattleNet: pRec.Bnet2Acc,
@@ -481,7 +472,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	for i, slot := range rep.Slots {
 		player, ok := rep.Players[slot.playerId]
 		if ok {
-			rep.Slots[i].Player = &player
+			rep.Slots[i].Player = player
 		}
 
 	}
@@ -492,6 +483,176 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if p.slot.Player.Id != p.Id {
 			return fmt.Errorf("player %+v and Slot %+v ids aren't consistent", p, p.slot)
 		}
+	}
+
+	if randomSeed, err := readDWORD(buffer); err != nil {
+		return fmt.Errorf("error reading random seed: %w", err)
+	} else {
+		rep.RandomSeed = randomSeed
+	}
+
+	if selectMode, err := buffer.ReadByte(); err != nil {
+		return fmt.Errorf("error reading select mode: %w", err)
+	} else {
+		rep.selectMode = selectMode
+		// TODO
+		/*
+		   0x00 - team & race selectable (for standard custom games)
+		   0x01 - team not selectable
+		          (map setting: fixed alliances in WorldEditor)
+		   0x03 - team & race not selectable
+		          (map setting: fixed player properties in WorldEditor)
+		   0x04 - race fixed to random
+		          (extended map options: random races selected)
+		   0xcc - Automated Match Making (ladder)
+		*/
+	}
+
+	if startSpotCount, err := buffer.ReadByte(); err != nil {
+		return fmt.Errorf("error reading start spot count: %w", err)
+	} else {
+		rep.startSpotCount = int(startSpotCount)
+	}
+
+	zeroes := 0
+	currentTimeMS := 0
+	// ReplayData blocks
+replayDataLoop:
+	for {
+		blockId, err := buffer.ReadByte()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return fmt.Errorf("error reading block id: %w", err)
+		}
+
+		if rep.Version < 3 && blockId == 0x20 {
+			// before 1.03, 0x20 was used instead of 0x22
+			blockId = 0x22
+		}
+
+		switch blockId {
+		case 0x00:
+			zeroes++
+		case 0xFF:
+			break replayDataLoop
+		case 0x17: // LeaveGame
+			if _, err := readDWORD(buffer); err != nil {
+				return fmt.Errorf("error reading leavegame reason")
+			}
+			if _, err := buffer.ReadByte(); err != nil {
+				return fmt.Errorf("error reading leavegame playerId")
+			}
+			if _, err := readDWORD(buffer); err != nil {
+				return fmt.Errorf("error reading leavegame result")
+			}
+			if _, err := readDWORD(buffer); err != nil {
+				return fmt.Errorf("error reading leavegame unknown val")
+			}
+		case 0x1A: //first startblock
+			if err := expectDWORD(buffer, 0x01); err != nil {
+				return fmt.Errorf("error reading first startblock: %w", err)
+			}
+		case 0x1B: //second startblock
+			if err := expectDWORD(buffer, 0x01); err != nil {
+				return fmt.Errorf("error reading second startblock: %w", err)
+			}
+		case 0x1C: //third startblock
+			if err := expectDWORD(buffer, 0x01); err != nil {
+				return fmt.Errorf("error reading third startblock: %w", err)
+			}
+		case 0x1E, 0x1F: // time slot
+			n, err := readWORD(buffer)
+			if err != nil {
+				return fmt.Errorf("error reading timeslot block len: %w", err)
+			}
+			if ms, err := readWORD(buffer); err != nil {
+				return fmt.Errorf("error reading timeslot time increment: %w", err)
+			} else {
+				currentTimeMS += int(ms)
+			}
+			if n > 2 {
+				commandDataBlock := make([]byte, n-2)
+				if _, err := buffer.Read(commandDataBlock); err != nil {
+					return fmt.Errorf("error reading commanddata block: %w", err)
+				}
+				// TODO!!! parse commandDataBlock
+			}
+		case 0x20: //chat message
+			playerId, err := buffer.ReadByte()
+			if err != nil {
+				return fmt.Errorf("error reading timeslot block len: %w", err)
+			}
+			_, err = readWORD(buffer)
+			if err != nil {
+				return fmt.Errorf("error reading timeslot block len: %w", err)
+			}
+			flags, err := buffer.ReadByte()
+			if err != nil {
+				return fmt.Errorf("error reading timeslot block len: %w", err)
+			}
+			var dest MsgDestination
+			if flags != 0x10 {
+				chatMode, err := readDWORD(buffer)
+				if err != nil {
+					return fmt.Errorf("error reading timeslot block len: %w", err)
+				}
+				switch chatMode {
+				case 0x00:
+					dest = MsgToEveryone{}
+				case 0x01:
+					dest = MsgToAllies{}
+				case 0x02:
+					dest = MsgToObservers{}
+				default:
+					dest = MsgToPlayer{rep.Players[int(chatMode)-3]}
+				}
+			}
+
+			msg, err := buffer.ReadString(0)
+			if err != nil {
+				return fmt.Errorf("error reading msg text: %w", err)
+			}
+			msg = strings.TrimRight(msg, "\000")
+			timestamp := time.Duration(currentTimeMS) * time.Millisecond
+
+			rep.ChatMessages = append(rep.ChatMessages, ChatMessage{
+				Timestamp:   timestamp,
+				Author:      rep.Players[int(playerId)],
+				Body:        msg,
+				Destination: dest,
+			})
+		case 0x22: //checksum?
+			n, err := buffer.ReadByte()
+			if err != nil {
+				return fmt.Errorf("error reading checksum block len: %w", err)
+			}
+			buffer.Next(int(n))
+		case 0x23: //unknown
+			buffer.Next(10)
+		case 0x2F: // forced game end countdown (map is revealed)
+			mode, err := readDWORD(buffer)
+			if err != nil {
+				return fmt.Errorf("error reading game end cd mode: %w", err)
+			}
+			countdownSecs, err := readDWORD(buffer)
+			if err != nil {
+				return fmt.Errorf("error reading game end cd secs: %w", err)
+			}
+			// TODO
+			if rep.debugMode {
+				fmt.Printf("countdown mode %x, %d\n", mode, countdownSecs)
+			}
+		default:
+			if rep.debugMode {
+				fmt.Printf("unknown block id: 0x%X\n", blockId)
+			}
+		}
+		if blockId != 0 && zeroes > 0 {
+			fmt.Println(zeroes, "zeroes")
+			zeroes = 0
+		}
+
 	}
 
 	return nil
@@ -608,6 +769,9 @@ func readEncodedString(encodedStr string, rep *Replay) error {
 	if err != nil {
 		return fmt.Errorf("error reading map name: %w", err)
 	}
+
+	mapName = strings.ReplaceAll(mapName, "\\", "/")
+
 	rep.GameOptions.MapName = strings.TrimRight(mapName, "\000")
 	gameCreatorName, err := decoded.ReadString(0)
 	if err != nil {

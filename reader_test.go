@@ -23,6 +23,7 @@ func TestRead(t *testing.T) {
 		{"reforged Pudge wars", "reforgedPudgeWars.w3g", true, false},
 		{"reforged private game", "refTest.w3g", true, false},
 		{"reforged Tower game", "refTower.w3g", true, false},
+		{"reforged lotr", "lotr.w3g", true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -31,7 +32,8 @@ func TestRead(t *testing.T) {
 			if err != nil {
 				t.Errorf("Could not open test replay: %v", err)
 			}
-			rep, err := ParseReplay(f)
+			rep, err := ParseReplayDebug(f)
+			fmt.Println(rep.GameOptions.GameName, rep.GameOptions.MapName, rep.Version)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseReplay() error = %v, wantErr %v", err, tt.wantErr)
 				return

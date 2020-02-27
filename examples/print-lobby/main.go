@@ -7,18 +7,21 @@ import (
 	"image/color"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 // Prints what the slots on the lobby screen would look like
 // (name, race, team, color, handicap)
-// requires a truecolor terminal for colors
 func main() {
-	flag.Parse()
+	colorterm := os.Getenv("COLORTERM")
+	termSupportsColor := colorterm == "truecolor" || colorterm == "24bit"
+	useColor := flag.Bool("color", termSupportsColor, "show player colors as boxes (requires truecolor term)")
 	flag.Usage = func() {
 		fmt.Printf("Usage: %s LastReplay.w3g ...\n", os.Args[0])
 		flag.PrintDefaults()
 	}
+	flag.Parse()
 	if flag.NArg() == 0 {
 		flag.Usage()
 		os.Exit(1)
@@ -32,7 +35,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("cannot parse %s: %s", arg, err)
 		}
-		printLobby(replay)
+		fmt.Println(replay.GameOptions.GameName)
+		fmt.Println(filepath.Base(replay.GameOptions.MapName))
+		printLobby(replay, *useColor)
 		if i < flag.NArg()-1 {
 			fmt.Println(strings.Repeat("\u2015", 60))
 		}
@@ -40,15 +45,19 @@ func main() {
 
 }
 
-func printLobby(replay warcrumb.Replay) {
+func printLobby(replay warcrumb.Replay, useColor bool) {
 	for _, slot := range replay.Slots {
-		fmt.Print(paddedStr(slot.NameText(), 20))
+		fmt.Printf("%-20s", slot.String())
 		if slot.SlotStatus == warcrumb.UsedSlot {
-			fmt.Print("\t",
-				paddedStr(slot.Race.String(), 11), "\t",
-				"Team ", slot.TeamNumber+1, "\t",
-				setFgColor(slot.Color), "\u2588\u2588", resetColor(), "\t", // colored box
-				slot.Handicap, "%",
+			var colouredBox string
+			if useColor {
+				colouredBox = fmt.Sprint(setFgColor(slot.Color), "\u2588\u2588", resetColor())
+			}
+			fmt.Printf("\t%-11s\tTeam %d\t%s\t%d%%",
+				slot.Race.String(),
+				slot.TeamNumber+1,
+				colouredBox,
+				slot.Handicap,
 			)
 		}
 		fmt.Println()
@@ -60,10 +69,4 @@ func setFgColor(color color.Color) string {
 }
 func resetColor() string {
 	return "\x01\x1b[0m\x02"
-}
-func paddedStr(str string, i int) string {
-	if len(str) >= i {
-		return str
-	}
-	return str + strings.Repeat(" ", i-len(str))
 }

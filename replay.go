@@ -7,19 +7,22 @@ import (
 )
 
 type Replay struct {
-	Duration      time.Duration
-	Version       int
-	BuildNumber   int
-	Expac         Expac
-	IsMultiplayer bool
-	isReforged    bool
-	GameType      GameType
-	PrivateGame   bool
-	GameOptions   GameOptions
-	Players       map[int]Player
-	Slots         []Slot
-	RandomSeed    uint32
 	parseOptions
+	Duration       time.Duration
+	Version        int
+	BuildNumber    int
+	Expac          Expac
+	IsMultiplayer  bool
+	isReforged     bool
+	GameType       GameType
+	PrivateGame    bool
+	GameOptions    GameOptions
+	Players        map[int]*Player
+	Slots          []Slot
+	RandomSeed     uint32
+	selectMode     byte
+	startSpotCount int
+	ChatMessages   []ChatMessage
 }
 
 type parseOptions struct {
@@ -93,6 +96,14 @@ type Player struct {
 	BattleNet *BattleNet2Account
 }
 
+func (p Player) String() string {
+	if p.BattleNet != nil {
+		return p.BattleNet.Username
+	} else {
+		return p.Name
+	}
+}
+
 type BattleNet2Account struct {
 	PlayerId  int
 	Avatar    string
@@ -101,11 +112,41 @@ type BattleNet2Account struct {
 	ExtraData []byte
 }
 
+type ChatMessage struct {
+	Timestamp   time.Duration
+	Author      *Player
+	Body        string
+	Destination MsgDestination
+}
+type MsgDestination interface {
+	isMsgDest() // dummy method to emulate sum type
+	fmt.Stringer
+}
+type MsgToEveryone struct{}
+
+func (MsgToEveryone) isMsgDest()     {}
+func (MsgToEveryone) String() string { return "All" }
+
+type MsgToAllies struct{}
+
+func (MsgToAllies) isMsgDest()     {}
+func (MsgToAllies) String() string { return "Allies" }
+
+type MsgToObservers struct{}
+
+func (MsgToObservers) isMsgDest()     {}
+func (MsgToObservers) String() string { return "Observers" }
+
+type MsgToPlayer struct{ *Player }
+
+func (MsgToPlayer) isMsgDest()       {}
+func (m MsgToPlayer) String() string { return "To " + m.Player.Name }
+
 type Slot struct {
 	Id                    int
 	Player                *Player
 	IsCPU                 bool
-	Race                  race
+	Race                  Race
 	raceSelectableOrFixed bool
 	SlotStatus            slotStatus
 	TeamNumber            int
@@ -116,8 +157,8 @@ type Slot struct {
 	playerId              int
 }
 
-// NameText returns the text you'd see in-game as the name of that slot.
-func (s *Slot) NameText() string {
+// String returns the text you'd see in-game as the name of that slot.
+func (s *Slot) String() string {
 	switch s.SlotStatus {
 	case EmptySlot:
 		return "Open"
@@ -127,37 +168,33 @@ func (s *Slot) NameText() string {
 		if s.IsCPU {
 			return fmt.Sprintf("Computer (%s)", s.AIStrength.String())
 		} else {
-			if s.Player.BattleNet != nil {
-				return s.Player.BattleNet.Username
-			} else {
-				return s.Player.Name
-			}
+			return s.Player.String()
 		}
 	}
 	return ""
 }
 
-type race struct {
+type Race struct {
 	name string
 	// could add an icon field
 }
 
 var (
-	Human      = race{"Human"}
-	Orc        = race{"Orc"}
-	NightElf   = race{"Night Elf"}
-	Undead     = race{"Undead"}
-	RandomRace = race{"Random"}
+	Human      = Race{"Human"}
+	Orc        = Race{"Orc"}
+	NightElf   = Race{"Night Elf"}
+	Undead     = Race{"Undead"}
+	RandomRace = Race{"Random"}
 )
 
-func (r *race) String() string {
+func (r Race) String() string {
 	return r.name
 }
-func (r *race) MarshalText() ([]byte, error) {
+func (r Race) MarshalText() ([]byte, error) {
 	return []byte(r.String()), nil
 }
 
-var races = map[byte]race{
+var races = map[byte]Race{
 	0x01: Human,
 	0x02: Orc,
 	0x04: NightElf,
@@ -184,11 +221,10 @@ type Color struct {
 	name string
 }
 
-// todo: provide an option to output hex or something
-func (c *Color) String() string {
+func (c Color) String() string {
 	return c.name
 }
-func (c *Color) MarshalText() ([]byte, error) {
+func (c Color) MarshalText() ([]byte, error) {
 	return []byte(c.String()), nil
 }
 
@@ -250,8 +286,8 @@ var colors = []Color{
 
 type AIStrength byte
 
-func (a *AIStrength) String() string {
-	switch *a {
+func (a AIStrength) String() string {
+	switch a {
 	case EasyAI:
 		return "Easy"
 	case NormalAI:
@@ -262,7 +298,7 @@ func (a *AIStrength) String() string {
 	//return fmt.Sprintf("n/a (0x%x)", *a)
 	return "n/a"
 }
-func (a *AIStrength) MarshalText() ([]byte, error) {
+func (a AIStrength) MarshalText() ([]byte, error) {
 	return []byte(a.String()), nil
 }
 
