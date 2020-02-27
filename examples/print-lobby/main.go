@@ -51,7 +51,7 @@ func printLobby(replay warcrumb.Replay, useColor bool) {
 		if slot.SlotStatus == warcrumb.UsedSlot {
 			var colouredBox string
 			if useColor {
-				colouredBox = fmt.Sprint(setFgColor(slot.Color), "\u2588\u2588", resetColor())
+				colouredBox = fmt.Sprint(setBgColor(slot.Color), "  ", resetColor())
 			}
 			fmt.Printf("\t%-11s\tTeam %d\t%s\t%d%%",
 				slot.Race.String(),
@@ -69,9 +69,9 @@ func printLobby(replay warcrumb.Replay, useColor bool) {
 		fmt.Println()
 	}
 }
-func setFgColor(color color.Color) string {
-	r, g, b, _ := color.RGBA()
-	return fmt.Sprintf("\x01\x1b[38;2;%d;%d;%dm\x02", r, g, b)
+func setBgColor(col color.Color) string {
+	rgb := color.RGBAModel.Convert(col).(color.RGBA)
+	return fmt.Sprintf("\x01\x1b[48;2;%d;%d;%dm\x02", rgb.R, rgb.G, rgb.B)
 }
 func resetColor() string {
 	return "\x01\x1b[0m\x02"

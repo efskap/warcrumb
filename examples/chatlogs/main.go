@@ -51,9 +51,9 @@ func printChat(replay warcrumb.Replay, color bool) {
 		fmt.Printf("[%s] [%s] %s: %s\n", fmtTimestamp(msg.Timestamp), msg.Destination, playerName, msg.Body)
 	}
 }
-func setFgColor(color color.Color) string {
-	r, g, b, _ := color.RGBA()
-	return fmt.Sprintf("\x01\x1b[38;2;%d;%d;%dm\x02", r, g, b)
+func setFgColor(col color.Color) string {
+	rgb := color.RGBAModel.Convert(col).(color.RGBA)
+	return fmt.Sprintf("\x01\x1b[38;2;%d;%d;%dm\x02", rgb.R, rgb.G, rgb.B)
 }
 func resetColor() string {
 	return "\x01\x1b[0m\x02"
