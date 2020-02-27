@@ -197,7 +197,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	if err != nil {
 		return fmt.Errorf("error reading unknown field: %w", err)
 	}
-	playerRecords := make(map[int]playerRecord)
+	playerRecords := make(map[int]*playerRecord)
 	// [playerRecord]
 	if err = expectByte(buffer, 0); err != nil {
 		return err
@@ -206,7 +206,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 	if err != nil {
 		return err
 	}
-	playerRecords[p.Id] = p
+	playerRecords[p.Id] = &p
 
 	gameName, err := buffer.ReadString(0) // read null terminated string
 	if err != nil {
@@ -291,7 +291,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			if pRec, err := readPlayerRecord(buffer, rep); err != nil {
 				return err
 			} else {
-				playerRecords[pRec.Id] = pRec
+				playerRecords[pRec.Id] = &pRec
 			}
 			if _, err = readDWORD(buffer); err != nil {
 				return err
@@ -372,19 +372,18 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if err != nil {
 			return err
 		}
-		pRec, ok := playerRecords[int(playerId)]
-		pRec.SlotId = slotId
 
 		slotRecord := Slot{Id: slotId}
+		// if playerId == 0, it's a computer and thus won't be in playerRecords
 		if playerId != 0 {
+			pRec, ok := playerRecords[int(playerId)]
 			if !ok {
 				return fmt.Errorf("slot references invalid player record: id=%d", playerId)
-			} else {
-				playerRecords[int(playerId)] = pRec
 			}
+			pRec.SlotId = slotId
+			slotRecord.playerId = pRec.Id
 		}
 		//fmt.Printf("slot references invalid player record: id=%d\n", playerId)
-		slotRecord.playerId = pRec.Id
 
 		if mapDownloadPct, err := buffer.ReadByte(); err != nil {
 			return err
@@ -397,10 +396,11 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if slotStatus, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
-			slotRecord.SlotStatus, ok = slotStatuses[slotStatus]
+			slotStatus, ok := slotStatuses[slotStatus]
 			if !ok {
 				return fmt.Errorf("invalid slot status: 0x%x", slotStatus)
 			}
+			slotRecord.SlotStatus = slotStatus
 		}
 		if isCPU, err := buffer.ReadByte(); err != nil {
 			return err
@@ -428,9 +428,11 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				slotRecord.raceSelectableOrFixed = true
 				playerRace -= 0x40
 			}
-			slotRecord.Race, ok = races[playerRace]
+			race, ok := races[playerRace]
 			if !ok {
 				return fmt.Errorf("unknown race: 0x%x", playerRace)
+			} else {
+				slotRecord.Race = race
 			}
 		}
 		if rep.Version >= 03 {
@@ -516,8 +518,11 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 	zeroes := 0
 	currentTimeMS := 0
+	var leaveUnknown uint32 // "unknown" variable from LeaveGame that we check for increment
+	numLeaves := 0
+	saverWon := false // with LeaveGame{0x0C (not last), 0x09}, we know the saver won, but we don't know who they are yet
+
 	// ReplayData blocks
-replayDataLoop:
 	for {
 		blockId, err := buffer.ReadByte()
 		if err == io.EOF {
@@ -533,22 +538,68 @@ replayDataLoop:
 
 		switch blockId {
 		case 0x00:
+			// normally zeroes signify the end of the replay
+			// but I want to make sure there aren't zeroes in between blocks
 			zeroes++
-		case 0xFF:
-			break replayDataLoop
 		case 0x17: // LeaveGame
-			if _, err := readDWORD(buffer); err != nil {
+			numLeaves++
+			reason, err := readDWORD(buffer)
+			if err != nil {
 				return fmt.Errorf("error reading leavegame reason")
 			}
-			if _, err := buffer.ReadByte(); err != nil {
+			playerId, err := buffer.ReadByte()
+			if err != nil {
 				return fmt.Errorf("error reading leavegame playerId")
 			}
-			if _, err := readDWORD(buffer); err != nil {
+			result, err := readDWORD(buffer)
+			if err != nil {
 				return fmt.Errorf("error reading leavegame result")
 			}
-			if _, err := readDWORD(buffer); err != nil {
+			unknown, err := readDWORD(buffer)
+			if err != nil {
 				return fmt.Errorf("error reading leavegame unknown val")
 			}
+			inc := unknown > leaveUnknown
+			leaveUnknown = unknown
+			playerRecords[int(playerId)].leaveTime = currentTimeMS
+			curPlayer := rep.Players[int(playerId)]
+
+			// last leave action is by the saver
+			if numLeaves == len(rep.Players) {
+				rep.Saver = curPlayer
+				if saverWon {
+					rep.WinnerTeam = rep.Saver.slot.TeamNumber
+				}
+			}
+
+			// TODO: maybe store all the losers to help deduce the winner
+			// until then, we only care about win conditions
+			switch reason {
+			case 0x01, 0x0E:
+				switch result {
+				case 0x09:
+					rep.WinnerTeam = curPlayer.slot.TeamNumber
+				}
+			case 0x0C:
+				if rep.Saver == nil { // "not last"
+					switch result {
+					case 0x09:
+						saverWon = true
+					case 0x0A:
+						rep.WinnerTeam = -1 // draw
+					}
+				} else { // last local leave action => curPlayer == rep.Saver
+					switch result {
+					case 0x07, 0x0B:
+						if inc {
+							rep.WinnerTeam = rep.Saver.slot.TeamNumber
+						}
+					case 0x09:
+						rep.WinnerTeam = rep.Saver.slot.TeamNumber
+					}
+				}
+			}
+
 		case 0x1A: //first startblock
 			if err := expectDWORD(buffer, 0x01); err != nil {
 				return fmt.Errorf("error reading first startblock: %w", err)
@@ -581,21 +632,21 @@ replayDataLoop:
 		case 0x20: //chat message
 			playerId, err := buffer.ReadByte()
 			if err != nil {
-				return fmt.Errorf("error reading timeslot block len: %w", err)
+				return fmt.Errorf("error reading chat message playerId: %w", err)
 			}
 			_, err = readWORD(buffer)
 			if err != nil {
-				return fmt.Errorf("error reading timeslot block len: %w", err)
+				return fmt.Errorf("error reading chat message block len: %w", err)
 			}
 			flags, err := buffer.ReadByte()
 			if err != nil {
-				return fmt.Errorf("error reading timeslot block len: %w", err)
+				return fmt.Errorf("error reading chat message block flags: %w", err)
 			}
 			var dest MsgDestination
 			if flags != 0x10 {
 				chatMode, err := readDWORD(buffer)
 				if err != nil {
-					return fmt.Errorf("error reading timeslot block len: %w", err)
+					return fmt.Errorf("error reading chat message block mode: %w", err)
 				}
 				switch chatMode {
 				case 0x00:
@@ -850,6 +901,7 @@ type playerRecord struct {
 	RaceFlags uint32
 	Bnet2Acc  *BattleNet2Account
 	SlotId    int
+	leaveTime int
 }
 
 type header struct {

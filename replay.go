@@ -23,6 +23,8 @@ type Replay struct {
 	selectMode     byte
 	startSpotCount int
 	ChatMessages   []ChatMessage
+	Saver          *Player
+	WinnerTeam     int // -1 represents a draw
 }
 
 type parseOptions struct {
