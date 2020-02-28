@@ -36,7 +36,7 @@ func read(file io.Reader, rep *Replay) (err error) {
 	rep.Expac = header.Expac
 	rep.BuildNumber = header.BuildNumber
 
-	rep.isReforged = rep.Version >= 10000
+	rep.isReforged = rep.Version >= 10032
 
 	// might as well allocate the right size buffer based on the assumption that every block is 8K
 	buffer := bytes.NewBuffer(make([]byte, 0, header.NumberOfBlocks*0x2000))

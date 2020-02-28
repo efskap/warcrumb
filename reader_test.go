@@ -24,6 +24,9 @@ func TestRead(t *testing.T) {
 		{"reforged private game", "refTest.w3g", true, false},
 		{"reforged Tower game", "refTower.w3g", true, false},
 		{"reforged lotr", "lotr.w3g", true, false},
+		{"1.18 vs computers", "W3R-118-Archie(HU) & Ezzo(HU) vs Computer (Insane)(RND) & Computer (Insane)(RND).w3g", false, false},
+		{"1.30 grub", "W3R-22259-Grubby(O) vs Happy(UD).w3g", false, false},
+		{"1.31 just before reforged", "W3R-28524-Lyn(O) vs LawLiet(NE).w3g", false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
