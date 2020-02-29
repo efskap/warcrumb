@@ -711,7 +711,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				case 0x02:
 					dest = MsgToObservers{}
 				default:
-					dest = MsgToPlayer{rep.Players[int(chatMode)-3]}
+					dest = MsgToPlayer{rep.Players[int(chatMode)-2]}
 				}
 			}
 
