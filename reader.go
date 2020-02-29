@@ -350,7 +350,6 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 					} else {
 						acct, err = readBnetAcctInner(bnetBuffer)
 					}
-					fmt.Println(acct)
 					if err != nil {
 						return fmt.Errorf("error reading bnet2.0 accounts: %w", err)
 					}
