@@ -1,3 +1,3 @@
 module github.com/efskap/warcrumb
 
-go 1.13
+go 1.14

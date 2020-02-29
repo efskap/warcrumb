@@ -62,7 +62,7 @@ func printLobby(replay warcrumb.Replay, useColor bool) {
 			if replay.WinnerTeam == slot.TeamNumber {
 				fmt.Print("\t(winner)")
 			}
-			if slot.Player == replay.Saver {
+			if !slot.IsCPU && slot.Player == replay.Saver {
 				fmt.Print("\t(saver)")
 			}
 		}

@@ -47,20 +47,20 @@ func read(file io.Reader, rep *Replay) (err error) {
 		}
 		buffer.Write(b)
 	}
+	bufferCopy := make([]byte, buffer.Len())
+	copy(bufferCopy, buffer.Bytes())
 
+	bufferLen := buffer.Len()
 	err = readDecompressedData(buffer, rep)
-	if err != nil {
-		return fmt.Errorf("error in decompressed data: %w", err)
-	}
-
 	if rep.debugMode {
 		_ = os.Mkdir("hexdumps", os.ModePerm)
-		_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), buffer.Bytes(), os.ModePerm)
-
-		if buffer.Len() > 0 {
-			fmt.Printf("[*] %d unread bytes left!!!\n", buffer.Len())
-		}
+		_ = ioutil.WriteFile(fmt.Sprintf("./hexdumps/decompresssed_%s_%s.hex", rep.GameOptions.GameName, rep.GameOptions.CreatorName), bufferCopy, os.ModePerm)
 	}
+	if err != nil {
+		readBytes := bufferLen - buffer.Len()
+		return fmt.Errorf("error in decompressed data at/before %#x: %w", readBytes, err)
+	}
+
 	return
 }
 
@@ -300,49 +300,69 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			if rep.debugMode {
 				fmt.Println("[*] Battle.net 2.0 data present")
 			}
-
-			// not sure what these next 7 bytes are but they seem consistent?
-			restOfBnetMagic := make([]byte, 7)
-			_, err := buffer.Read(restOfBnetMagic)
+			// TODO: give this var a more... semantic name
+			after39, err := buffer.ReadByte()
 			if err != nil {
-				return fmt.Errorf("error reading rest of bnet2.0 magic: %w", err)
+				return fmt.Errorf("error reading value bnet section kind: %w", err)
 			}
+			if after39 == 4 || after39 == 5 {
+				// some sort of bonus data that needs further investigation
 
-			if !bytes.Equal(restOfBnetMagic, []byte{4, 0, 0, 0, 0, 57, 3}) && rep.debugMode {
-				fmt.Printf("wasn't expecting that magic string: %v\n", restOfBnetMagic)
-			}
-
-			lengthOfBnetBlock, err := readDWORD(buffer)
-			if err != nil {
-				return fmt.Errorf("error reading bnet2.0 block length: %w", err)
-			}
-			// and indeed if we just read the rest of the bnet block, we go straight to GameStartRecord
-			bnetBlock := make([]byte, lengthOfBnetBlock)
-			_, err = buffer.Read(bnetBlock)
-			if err != nil {
-				return fmt.Errorf("error reading bnet2.0 block: %w", err)
-			}
-
-			if rep.debugMode {
-				_ = ioutil.WriteFile("hexdumps/bnetBlock.hex", bnetBlock, os.ModePerm)
-			}
-			bnetBuffer := bytes.NewBuffer(bnetBlock)
-
-			// now we don't know how many account entries are in the block
-			// but we know the size of the whole thing, so just read it until it's empty
-			// each iteration reads one account
-			for bnetBuffer.Len() > 0 {
-				// first, 0x0A
-				acct, err := readBattleNetAcct(bnetBuffer)
+				// now, online games seem to have this at 0 while LAN ones have 2 sometimes
+				bonusDataLength, err := readDWORD(buffer)
 				if err != nil {
-					return fmt.Errorf("error reading bnet2.0 accounts: %w", err)
+					return fmt.Errorf("error reading bnet bonus data length: %w", err)
 				}
-				pRec, ok := playerRecords[acct.PlayerId]
-				if !ok {
-					return fmt.Errorf("bnet2.0 account refers to nonexistent playerRecord: %d", acct.PlayerId)
+				// not sure how to use the following data so skip it for now
+				bonusData := make([]byte, bonusDataLength)
+				_, err = buffer.Read(bonusData)
+				if err != nil {
+					return fmt.Errorf("error reading bonus data: %w", err)
 				}
-				pRec.Bnet2Acc = &acct
-				playerRecords[acct.PlayerId] = pRec
+			} else if after39 == 3 {
+				lengthOfBnetBlock, err := readDWORD(buffer)
+				if err != nil {
+					return fmt.Errorf("error reading bnet2.0 block length: %w", err)
+				}
+				// and indeed if we just read the rest of the bnet block, we go straight to GameStartRecord
+				bnetBlock := make([]byte, lengthOfBnetBlock)
+				_, err = buffer.Read(bnetBlock)
+				if err != nil {
+					return fmt.Errorf("error reading bnet2.0 block: %w", err)
+				}
+
+				if rep.debugMode {
+					_ = ioutil.WriteFile("hexdumps/bnetBlock.hex", bnetBlock, os.ModePerm)
+				}
+				bnetBuffer := bytes.NewBuffer(bnetBlock)
+
+				// now we don't know how many account entries are in the block
+				// but we know the size of the whole thing, so just read it until it's empty
+				// each iteration reads one account
+				for bnetBuffer.Len() > 0 {
+					var acct BattleNet2Account
+					// peek ahead
+					// seems like if there's an 0A, there's a sort of "unwrapping" we have to do
+					// before calling the "inner" function
+					// BNet games have 0x0A, but Reforged LAN ones don't.
+					if bnetBuffer.Bytes()[0] == 0x0A {
+						acct, err = readBattleNetAcct(bnetBuffer)
+					} else {
+						acct, err = readBnetAcctInner(bnetBuffer)
+					}
+					fmt.Println(acct)
+					if err != nil {
+						return fmt.Errorf("error reading bnet2.0 accounts: %w", err)
+					}
+					pRec, ok := playerRecords[acct.PlayerId]
+					if !ok {
+						return fmt.Errorf("bnet2.0 account refers to nonexistent playerRecord: %d", acct.PlayerId)
+					}
+					pRec.Bnet2Acc = &acct
+					playerRecords[acct.PlayerId] = pRec
+				}
+			} else {
+				return fmt.Errorf("unexpected byte after 0x39 in bnet section: %#02x", after39)
 			}
 
 		} else if recordId == 0x19 {
@@ -383,8 +403,6 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			pRec.SlotId = slotId
 			slotRecord.playerId = pRec.Id
 		}
-		//fmt.Printf("slot references invalid player record: id=%d\n", playerId)
-
 		if mapDownloadPct, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
@@ -613,7 +631,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				return fmt.Errorf("error reading third startblock: %w", err)
 			}
 		case 0x1E, 0x1F: // time slot
-			n, err := readWORD(buffer)
+			timeSlotLen, err := readWORD(buffer)
 			if err != nil {
 				return fmt.Errorf("error reading timeslot block len: %w", err)
 			}
@@ -622,13 +640,51 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 			} else {
 				currentTimeMS += int(ms)
 			}
-			if n > 2 {
-				commandDataBlock := make([]byte, n-2)
-				if _, err := buffer.Read(commandDataBlock); err != nil {
-					return fmt.Errorf("error reading commanddata block: %w", err)
-				}
-				// TODO!!! parse commandDataBlock
+			if timeSlotLen <= 2 {
+				break
 			}
+
+			commandDataBlock := make([]byte, timeSlotLen-2)
+			if _, err := buffer.Read(commandDataBlock); err != nil {
+				return fmt.Errorf("error reading commanddata block: %w", err)
+			}
+			commandDataBuf := bytes.NewBuffer(commandDataBlock)
+			for commandDataBuf.Len() > 0 {
+				var player *Player
+				if playerId, err := commandDataBuf.ReadByte(); err != nil {
+					return fmt.Errorf("error reading CommandData playerId: %w", err)
+				} else {
+					player = rep.Players[int(playerId)]
+				}
+				actionBlockLen, err := readWORD(commandDataBuf)
+				if err != nil {
+					return fmt.Errorf("error reading action block len: %w", err)
+				}
+				actionBlockBytes := make([]byte, actionBlockLen)
+				if _, err := commandDataBuf.Read(actionBlockBytes); err != nil {
+					return fmt.Errorf("error reading action block: %w", err)
+				}
+				actionBlockBuf := bytes.NewBuffer(actionBlockBytes)
+				for actionBlockBuf.Len() > 0 {
+					actionable, err := readActionBlock(actionBlockBuf, rep)
+					if err != nil {
+						if err == io.EOF {
+							// FIXME: this is just so we don't crash from unimplemented actions
+							break
+						}
+						return fmt.Errorf("error parsing action block: %w", err)
+					}
+					action := Action{
+						actionable: actionable,
+						Time:       time.Duration(currentTimeMS) * time.Millisecond,
+						Player:     player,
+					}
+					if action.actionable != nil {
+						rep.Actions = append(rep.Actions, action)
+					}
+				}
+			}
+
 		case 0x20: //chat message
 			playerId, err := buffer.ReadByte()
 			if err != nil {
@@ -726,6 +782,9 @@ func readBattleNetAcct(bnetBuffer *bytes.Buffer) (account BattleNet2Account, err
 	}
 
 	bnetAccountBuffer := bytes.NewBuffer(bnetAccountBlock)
+	return readBnetAcctInner(bnetAccountBuffer)
+}
+func readBnetAcctInner(bnetAccountBuffer *bytes.Buffer) (account BattleNet2Account, err error) {
 	for bnetAccountBuffer.Len() > 0 {
 		sectionByte, err := bnetAccountBuffer.ReadByte()
 		if err != nil {

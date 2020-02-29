@@ -25,6 +25,7 @@ type Replay struct {
 	ChatMessages   []ChatMessage
 	Saver          *Player
 	WinnerTeam     int // -1 represents a draw
+	Actions        []Action
 }
 
 type parseOptions struct {
