@@ -46,7 +46,7 @@ func printChat(replay warcrumb.Replay, color bool) {
 	for _, msg := range replay.ChatMessages {
 		playerName := msg.Author.String()
 		if color {
-			playerName = fmt.Sprint(setFgColor(replay.Slots[msg.Author.SlotId].Color), msg.Author, resetColor())
+			playerName = fmt.Sprint(setFgColor(msg.Author.Color), msg.Author, resetColor())
 		}
 		fmt.Printf("[%s] [%s] %s: %s\n", fmtTimestamp(msg.Timestamp), msg.Destination, playerName, msg.Body)
 	}

@@ -117,7 +117,7 @@ type BattleNet2Account struct {
 
 type ChatMessage struct {
 	Timestamp   time.Duration
-	Author      *Player
+	Author      Slot
 	Body        string
 	Destination MsgDestination
 }
@@ -140,10 +140,10 @@ type MsgToObservers struct{}
 func (MsgToObservers) isMsgDest()     {}
 func (MsgToObservers) String() string { return "Observers" }
 
-type MsgToPlayer struct{ *Player }
+type MsgToPlayer struct{ Target Slot }
 
 func (MsgToPlayer) isMsgDest()       {}
-func (m MsgToPlayer) String() string { return "To " + m.Player.Name }
+func (m MsgToPlayer) String() string { return "To " + m.Target.String() }
 
 type Slot struct {
 	Id                    int
@@ -192,6 +192,9 @@ var (
 
 func (r Race) String() string {
 	return r.name
+}
+func (r Race) ShortName() string {
+	return string(r.name[0])
 }
 func (r Race) MarshalText() ([]byte, error) {
 	return []byte(r.String()), nil

@@ -55,7 +55,7 @@ func printLobby(replay warcrumb.Replay, useColor bool) {
 			}
 			fmt.Printf("\t%-11s\tTeam %d\t%s\t%d%%",
 				slot.Race.String(),
-				slot.TeamNumber+1,
+				slot.TeamNumber,
 				colouredBox,
 				slot.Handicap,
 			)

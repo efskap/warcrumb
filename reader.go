@@ -430,7 +430,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 		if teamNumber, err := buffer.ReadByte(); err != nil {
 			return err
 		} else {
-			slotRecord.TeamNumber = int(teamNumber)
+			slotRecord.TeamNumber = int(teamNumber) + 1 // inside warcrumb teams are 1 indexed!!!
 		}
 		if color, err := buffer.ReadByte(); err != nil {
 			return err
@@ -711,7 +711,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 				case 0x02:
 					dest = MsgToObservers{}
 				default:
-					dest = MsgToPlayer{rep.Players[int(chatMode)-2]}
+					dest = MsgToPlayer{*rep.Players[int(chatMode)-2].slot}
 				}
 			}
 
@@ -724,7 +724,7 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 
 			rep.ChatMessages = append(rep.ChatMessages, ChatMessage{
 				Timestamp:   timestamp,
-				Author:      rep.Players[int(playerId)],
+				Author:      *rep.Players[int(playerId)].slot,
 				Body:        msg,
 				Destination: dest,
 			})
