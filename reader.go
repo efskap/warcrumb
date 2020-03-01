@@ -825,6 +825,9 @@ func readBnetAcctInner(bnetAccountBuffer *bytes.Buffer) (account BattleNet2Accou
 			fmt.Printf("[***] Unrecognized byte in block: 0x%x\n", sectionByte)
 		}
 	}
+	if account.Avatar == "" {
+		account.Avatar = "p003" // make avatar peon by default, as that is the ingame default
+	}
 	return account, nil
 }
 

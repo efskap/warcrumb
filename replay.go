@@ -161,7 +161,7 @@ type Slot struct {
 }
 
 // String returns the text you'd see in-game as the name of that slot.
-func (s *Slot) String() string {
+func (s Slot) String() string {
 	switch s.SlotStatus {
 	case EmptySlot:
 		return "Open"
