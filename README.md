@@ -38,7 +38,7 @@ func main() {
 	for _, msg := range replay.ChatMessages {
 		for _, term := range sportsmanTerms {
 			if strings.Contains(strings.ToLower(msg.Body), term) {
-				isSportsmanlike[msg.Author] = true
+				isSportsmanlike[msg.Author.Player] = true
 			}
 		}
 	}
