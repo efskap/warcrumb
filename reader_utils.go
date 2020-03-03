@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
+	"strconv"
 )
 
 func readWORD(file io.Reader) (uint16, error) {
@@ -21,6 +23,14 @@ func readDWORD(file io.Reader) (uint32, error) {
 		return 0, err
 	}
 	return binary.LittleEndian.Uint32(buf), nil
+}
+
+func readDWORD_BE(file io.Reader) (uint32, error) {
+	buf := make([]byte, 4)
+	if _, err := file.Read(buf); err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint32(buf), nil
 }
 func expectDWORD(file io.Reader, expected uint32) error {
 	actual, err := readDWORD(file)
@@ -79,6 +89,34 @@ func (u UnexpectedValueError) Error() string {
 	} else {
 		return fmt.Sprintf("unexpected value: 0x%d (expected 0x%d)", u.actual, u.expected)
 	}
+}
+
+type PointF struct {
+	X float32
+	Y float32
+}
+
+func (p PointF) String() string {
+	return "(" + strconv.FormatFloat(float64(p.X), 'f', 1, 32) +
+		"," + strconv.FormatFloat(float64(p.Y), 'f', 1, 32) + ")"
+}
+func readFloat32(buffer io.Reader) (float32, error) {
+	dword, err := readDWORD(buffer)
+	if err != nil {
+		return 0, nil
+	}
+	return math.Float32frombits(dword), nil
+}
+func readPointF(buffer io.Reader) (PointF, error) {
+	X, err := readFloat32(buffer)
+	if err != nil {
+		return PointF{}, err
+	}
+	Y, err := readFloat32(buffer)
+	if err != nil {
+		return PointF{}, err
+	}
+	return PointF{X, Y}, nil
 }
 
 func readCompressedBlock(file io.Reader, reforged bool) ([]byte, error) {
