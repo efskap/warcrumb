@@ -1,3 +1,4 @@
+// This program generates strings.go from a directory containing *strings.txt extracted from the WC3 mpq/casc
 package main
 
 import (
@@ -22,7 +23,6 @@ package warcrumb
 
 var WC3Strings=`
 
-// Generates strings.go from a directory containing *strings.txt extracted from the WC3 mpq/casc
 func main() {
 	if len(os.Args) != 2 {
 		printUsage()

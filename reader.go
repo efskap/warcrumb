@@ -674,11 +674,11 @@ func readDecompressedData(buffer *bytes.Buffer, rep *Replay) error {
 						return fmt.Errorf("error parsing action block: %w", err)
 					}
 					action := Action{
-						actionable: actionable,
-						Time:       time.Duration(currentTimeMS) * time.Millisecond,
-						Player:     player,
+						Ability: actionable,
+						Time:    time.Duration(currentTimeMS) * time.Millisecond,
+						Player:  player,
 					}
-					if action.actionable != nil {
+					if action.Ability != nil {
 						rep.Actions = append(rep.Actions, action)
 					}
 				}

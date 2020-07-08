@@ -8,9 +8,9 @@ import (
 )
 
 type Action struct {
-	actionable
-	Time   time.Duration
-	Player *Player
+	Ability Ability
+	Time    time.Duration
+	Player  *Player
 }
 
 func (a Action) MarshalText() (text []byte, err error) {
@@ -25,14 +25,14 @@ func (a Action) MarshalJSON() ([]byte, error) {
 		Time time.Duration
 		Player *Player
 		Data interface{}
-	}{a.Time, a.Player, a.actionable})
+	}{a.Time, a.Player, a.Ability})
 }
 */
 func (a Action) String() string {
-	return fmt.Sprintf("[%s] %s: %s", a.Time, a.Player, a.actionable)
+	return fmt.Sprintf("[%s] %s: %s", a.Time, a.Player, a.Ability)
 }
 
-type actionable interface {
+type Ability interface {
 	fmt.Stringer
 	APMChange() int
 }
@@ -47,8 +47,8 @@ func (a ItemId) String() string {
 	}
 	if bytes.Contains(a[:], []byte{0x00}) {
 		// alphanumeric id
-		return string(a[:])
-		//return fmt.Sprintf("%#02v", a)
+		//return string(a[:])
+		return fmt.Sprintf("%#02v", a)
 	} else {
 		// string
 		var reversed [4]byte
@@ -76,26 +76,26 @@ func (o ObjectId) String() string {
 	}
 }
 
-type Ability struct {
+type BasicAbility struct {
 	AbilityFlags uint16
 	ItemId       ItemId
 }
 
-func (a Ability) String() string {
+func (a BasicAbility) String() string {
 	return fmt.Sprintf("Ability [mod %#02x] %s", a.AbilityFlags, a.ItemId)
 }
 
-func (a Ability) APMChange() int {
+func (a BasicAbility) APMChange() int {
 	return 1
 }
 
 type TargetedAbility struct {
-	Ability
+	BasicAbility
 	Target PointF
 }
 
 func (a TargetedAbility) String() string {
-	return fmt.Sprintf("%s at %s", a.Ability, a.Target)
+	return fmt.Sprintf("%s at %s", a.BasicAbility, a.Target)
 }
 
 type ObjectTargetedAbility struct {
@@ -104,7 +104,7 @@ type ObjectTargetedAbility struct {
 }
 
 func (a ObjectTargetedAbility) String() string {
-	return fmt.Sprintf("%s object (%s, %s) at %s", a.Ability, a.TargetObjectId1, a.TargetObjectId2, a.Target)
+	return fmt.Sprintf("%s object (%s, %s) at %s", a.BasicAbility, a.TargetObjectId1, a.TargetObjectId2, a.Target)
 }
 
 func (a ObjectTargetedAbility) TargetsGround() bool {
@@ -123,17 +123,17 @@ func (g GiveOrDropItem) String() string {
 	return fmt.Sprintf("Give item %s (%s, %s) to obj (%s, %s) at %s", g.ItemId, g.ItemObjectId1, g.ItemObjectId2, g.TargetObjectId1, g.TargetObjectId2, g.Target)
 }
 
-type TwoTargetTwoItemAblity struct {
+type TwoTargetTwoItemAbility struct {
 	TargetedAbility
 	ItemId2 ItemId
 	Target2 PointF
 }
 
-func (t TwoTargetTwoItemAblity) String() string {
-	return fmt.Sprintf("%s + %s to %s & %s", t.Ability, t.ItemId2, t.Target, t.Target2)
+func (t TwoTargetTwoItemAbility) String() string {
+	return fmt.Sprintf("%s + %s to %s & %s", t.BasicAbility, t.ItemId2, t.Target, t.Target2)
 }
 
-func readActionBlock(buffer *bytes.Buffer, replay *Replay) (actionable, error) {
+func readActionBlock(buffer *bytes.Buffer, replay *Replay) (Ability, error) {
 	actionId, err := buffer.ReadByte()
 	if err != nil {
 		return nil, err
@@ -157,8 +157,6 @@ func readActionBlock(buffer *bytes.Buffer, replay *Replay) (actionable, error) {
 		if _, err = buffer.Read(itemId[:]); err != nil {
 			return nil, err
 		}
-		//itemIdRaw, err := readDWORD(buffer); if err != nil {return nil, err}
-		//binary.BigEndian.PutUint32(itemId[:], itemIdRaw)
 		if replay.Version >= 7 {
 			// two unknown values that are 0xFFFFFFFF in old replays (before like, 1.18)
 			if _, err = readDWORD(buffer); err != nil {
@@ -169,7 +167,7 @@ func readActionBlock(buffer *bytes.Buffer, replay *Replay) (actionable, error) {
 			}
 
 		}
-		baseAbility := Ability{AbilityFlags: abilityFlags, ItemId: itemId}
+		baseAbility := BasicAbility{AbilityFlags: abilityFlags, ItemId: itemId}
 		if actionId == 0x10 {
 			return baseAbility, nil
 		}
@@ -178,7 +176,7 @@ func readActionBlock(buffer *bytes.Buffer, replay *Replay) (actionable, error) {
 			return nil, err
 		}
 
-		targetedAbility := TargetedAbility{Ability: baseAbility, Target: target}
+		targetedAbility := TargetedAbility{BasicAbility: baseAbility, Target: target}
 		if actionId == 0x11 {
 			return targetedAbility, nil
 		}
@@ -194,7 +192,7 @@ func readActionBlock(buffer *bytes.Buffer, replay *Replay) (actionable, error) {
 				return nil, err
 			}
 
-			return TwoTargetTwoItemAblity{
+			return TwoTargetTwoItemAbility{
 				TargetedAbility: targetedAbility,
 				ItemId2:         itemId2,
 				Target2:         target2,
