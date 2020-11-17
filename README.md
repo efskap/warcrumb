@@ -1,6 +1,8 @@
 # warcrumb
 ## Warcraft 3 Replay Parser in Go
 
+![Go](https://github.com/efskap/warcrumb/workflows/Go/badge.svg)
+
 A work in progress, much like WC3 Reforged.
 
 Pulls out metadata, chat, and game events (to some extent).
